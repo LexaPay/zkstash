@@ -26,9 +26,15 @@ fn test_deposit_and_withdrawal_flow() {
     token_admin_client.mint(&depositor, &1000i128);
     assert_eq!(token_client.balance(&depositor), 1000i128);
 
+    // Verify initial commitment count
+    assert_eq!(client.get_commitment_count(), 0);
+
     // 4. Perform deposit
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
     client.deposit(&depositor, &token_id, &commitment, &amount);
+
+    // Verify commitment count incremented
+    assert_eq!(client.get_commitment_count(), 1);
 
     // Check balances after deposit
     assert_eq!(token_client.balance(&depositor), 900i128);

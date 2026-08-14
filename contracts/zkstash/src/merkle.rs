@@ -40,6 +40,10 @@ impl MerkleTree {
         env.storage().persistent().get(&symbol_short!("M_ROOT")).unwrap_or_else(|| get_zero_value(env, TREE_DEPTH))
     }
 
+    pub fn get_next_index(env: &Env) -> u32 {
+        env.storage().persistent().get(&symbol_short!("M_INDEX")).unwrap_or(0)
+    }
+
     pub fn insert(env: &Env, leaf: BytesN<32>) -> BytesN<32> {
         Self::init(env);
 

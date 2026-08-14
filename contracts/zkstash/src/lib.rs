@@ -95,6 +95,11 @@ impl ZkStashVault {
     pub fn get_root(env: Env) -> BytesN<32> {
         MerkleTree::get_current_root(&env)
     }
+
+    /// Gets the total number of commitments deposited in the Merkle Tree.
+    pub fn get_commitment_count(env: Env) -> u32 {
+        MerkleTree::get_next_index(&env)
+    }
 }
 
 #[cfg(test)]
