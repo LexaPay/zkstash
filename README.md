@@ -65,3 +65,18 @@ Build the optimized WASM binary for deployment:
 cargo build --target wasm32-unknown-unknown --release
 ```
 The optimized contract binary will be generated at `target/wasm32-unknown-unknown/release/zkstash_contract.wasm`.
+
+## Troubleshooting & Dependency Resolution
+
+During compilation, Cargo may try to resolve transitive dependencies on `ed25519-dalek` to incompatible newer versions (like `v3.0.0`), which causes testutils compilation failures.
+
+To lock dependencies to compatible versions (matching Soroban SDK `v22` requirements), ensure `ed25519-dalek` is pinned to version `2.2.0` in the Cargo lockfile:
+
+```bash
+cargo generate-lockfile
+cargo update -p ed25519-dalek@3.0.0 --precise 2.2.0
+```
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
