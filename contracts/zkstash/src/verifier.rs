@@ -15,11 +15,18 @@ impl ZkVerifier {
 
         let proof_bytes: Bytes = proof.clone();
 
+        // MOCK VERIFICATION PATH (For dev/test validation)
+        // In local unit tests, we bypass complex pairing math by passing the
+        // "ZK_PASS_MOCK_PROOF" string slice as the proof.
         if proof_bytes == Bytes::from_slice(env, b"ZK_PASS_MOCK_PROOF") {
             return true;
         }
 
-        // Hash the public inputs and compare with the proof
+        // PRODUCTION GROTH16 PAIRING VERIFICATION PATH:
+        // To deploy a production ZKStash instance, replace this block with
+        // a deserializer that decodes Groth16 components (pi_a, pi_b, pi_c)
+        // and checks mathematical pairings against the public inputs.
+        // E.g., using arkworks-rs with a optimized wasm32 curve config.
         let mut input_bytes = Bytes::new(env);
         for input in public_inputs.iter() {
             input_bytes.append(&input.into());
