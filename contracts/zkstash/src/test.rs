@@ -161,3 +161,40 @@ fn test_change_admin() {
     assert!(res.is_err(), "Previous admin should be unauthorized");
 }
 
+#[test]
+fn test_update_fee_bps() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(ZkStashVault, ());
+    let client = ZkStashVaultClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let depositor = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
+    let token_id = token_contract.address();
+    let token_client = soroban_sdk::token::Client::new(&env, &token_id);
+    let token_admin_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
+    client.initialize(&admin, &50); // Initial 50 bps (0.5%)
+    token_admin_client.mint(&depositor, &2000i128);
+
+    // Update fee to 100 bps (1%)
+    client.update_fee_bps(&admin, &100);
+
+    // Deposit 1000 tokens
+    let commitment = BytesN::from_array(&env, &[1u8; 32]);
+    client.deposit(&depositor, &token_id, &commitment, &1000i128);
+
+    // Withdraw 1000 tokens with 100 bps fee (10 tokens)
+    let root = client.get_root();
+    let nullifier = BytesN::from_array(&env, &[2u8; 32]);
+    let proof = Bytes::from_slice(&env, b"ZK_PASS_MOCK_PROOF");
+    client.withdraw(&token_id, &recipient, &1000i128, &nullifier, &root, &proof);
+
+    // Recipient should receive 990 tokens, 10 tokens are contract fees
+    assert_eq!(token_client.balance(&recipient), 990i128);
+}
+
+

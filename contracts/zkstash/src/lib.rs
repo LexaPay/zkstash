@@ -182,6 +182,13 @@ impl ZkStashVault {
         env.storage().persistent().set(&DataKey::Admin, &new_admin);
     }
 
+    /// Updates the protocol withdrawal fee in basis points (Admin only).
+    pub fn update_fee_bps(env: Env, admin: Address, new_fee_bps: u32) {
+        Self::require_admin(&env, &admin);
+        assert!(new_fee_bps <= 1000, "Fee cannot exceed 10%");
+        env.storage().persistent().set(&DataKey::FeeBps, &new_fee_bps);
+    }
+
     // Helpers
     fn require_admin(env: &Env, caller: &Address) {
         caller.require_auth();
