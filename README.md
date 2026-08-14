@@ -85,3 +85,5 @@ MIT — see [LICENSE](LICENSE) for details.
 
 - **Admin Transfer:** Change contract owner via `change_admin` endpoint.
 - **Contract Upgrades:** Upgrade compiled WASM logic via `upgrade` endpoint.
+
+- **Fee Management:** Dynamically adjust protocol fee using `update_fee_bps` endpoint.
