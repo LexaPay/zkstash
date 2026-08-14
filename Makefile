@@ -36,3 +36,6 @@ clippy:
 # Format check
 fmt:
 	cargo fmt --all
+
+# Clean built metadata
+clean-all: clean clean-docs
