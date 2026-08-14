@@ -170,6 +170,18 @@ impl ZkStashVault {
         MerkleTree::get_next_index(&env)
     }
 
+    /// Upgrades the contract WASM code to a new version (Admin only).
+    pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+        Self::require_admin(&env, &admin);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+    }
+
+    /// Transfers contract administration to a new address (Admin only).
+    pub fn change_admin(env: Env, admin: Address, new_admin: Address) {
+        Self::require_admin(&env, &admin);
+        env.storage().persistent().set(&DataKey::Admin, &new_admin);
+    }
+
     // Helpers
     fn require_admin(env: &Env, caller: &Address) {
         caller.require_auth();

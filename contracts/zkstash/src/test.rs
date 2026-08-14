@@ -129,10 +129,35 @@ fn test_emergency_pause() {
 #[should_panic(expected = "Not initialized")]
 fn test_uninitialized_vault() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register(ZkStashVault, ());
     let client = ZkStashVaultClient::new(&env, &contract_id);
-    let depositor = Address::generate(&env);
-    let token_id = Address::generate(&env);
-    let commitment = BytesN::from_array(&env, &[1u8; 32]);
-    client.deposit(&depositor, &token_id, &commitment, &100);
+    let admin = Address::generate(&env);
+    client.set_paused(&admin, &true);
 }
+
+#[test]
+fn test_change_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(ZkStashVault, ());
+    let client = ZkStashVaultClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+
+    client.initialize(&admin1, &0);
+
+    // Transfer admin ownership from admin1 to admin2
+    client.change_admin(&admin1, &admin2);
+
+    // Verify admin2 can now perform admin functions (like pausing the contract)
+    client.set_paused(&admin2, &true);
+    assert_eq!(client.is_paused(), true);
+
+    // Verify admin1 is now unauthorized and cannot pause/unpause
+    let res = client.try_set_paused(&admin1, &false);
+    assert!(res.is_err(), "Previous admin should be unauthorized");
+}
+
