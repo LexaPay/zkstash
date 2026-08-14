@@ -76,3 +76,5 @@ impl MerkleTree {
         current_level_hash
     }
 }
+
+// NOTE: Depth of 20 allows up to 2^20 (1,048,576) leaf insertions.
