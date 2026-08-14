@@ -180,3 +180,4 @@ impl ZkStashVault {
 
 #[cfg(test)]
 mod test;
+pub mod version;
