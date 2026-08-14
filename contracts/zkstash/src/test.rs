@@ -124,3 +124,15 @@ fn test_emergency_pause() {
     client.set_paused(&admin, &false);
     assert_eq!(client.is_paused(), false);
 }
+
+#[test]
+#[should_panic(expected = "Not initialized")]
+fn test_uninitialized_vault() {
+    let env = Env::default();
+    let contract_id = env.register(ZkStashVault, ());
+    let client = ZkStashVaultClient::new(&env, &contract_id);
+    let depositor = Address::generate(&env);
+    let token_id = Address::generate(&env);
+    let commitment = BytesN::from_array(&env, &[1u8; 32]);
+    client.deposit(&depositor, &token_id, &commitment, &100);
+}
