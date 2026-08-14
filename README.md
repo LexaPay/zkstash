@@ -80,3 +80,8 @@ cargo update -p ed25519-dalek@3.0.0 --precise 2.2.0
 ## License
 
 MIT — see [LICENSE](LICENSE) for details.
+
+## Admin Controls
+
+- **Admin Transfer:** Change contract owner via `change_admin` endpoint.
+- **Contract Upgrades:** Upgrade compiled WASM logic via `upgrade` endpoint.
