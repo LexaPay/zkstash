@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, Env, Address, BytesN, Bytes, Vec, symbol_short, xdr::ToXdr};
+use soroban_sdk::{contract, contractimpl, contracttype, Env, Address, BytesN, Bytes, Vec, symbol_short, xdr::ToXdr};
 
 mod merkle;
 mod verifier;
@@ -7,11 +7,32 @@ mod verifier;
 use merkle::MerkleTree;
 use verifier::ZkVerifier;
 
+#[contracttype]
+#[derive(Clone)]
+pub enum DataKey {
+    Admin,
+    Paused,
+    FeeBps,
+    AccruedFees,
+}
+
 #[contract]
 pub struct ZkStashVault;
 
 #[contractimpl]
 impl ZkStashVault {
+    /// Initializes the vault with an admin and protocol withdrawal fee in basis points.
+    pub fn initialize(env: Env, admin: Address, fee_bps: u32) {
+        if env.storage().persistent().has(&DataKey::Admin) {
+            panic!("Already initialized");
+        }
+        assert!(fee_bps <= 1000, "Fee cannot exceed 10%");
+        env.storage().persistent().set(&DataKey::Admin, &admin);
+        env.storage().persistent().set(&DataKey::Paused, &false);
+        env.storage().persistent().set(&DataKey::FeeBps, &fee_bps);
+        env.storage().persistent().set(&DataKey::AccruedFees, &0i128);
+    }
+
     /// Deposits tokens into the vault and registers a ZK commitment hash.
     pub fn deposit(
         env: Env,
@@ -21,6 +42,7 @@ impl ZkStashVault {
         amount: i128,
     ) {
         assert!(amount > 0, "Amount must be positive");
+        assert!(!Self::is_paused(&env), "Contract is paused");
         caller.require_auth();
 
         // Transfer tokens from the caller to the vault
@@ -28,11 +50,17 @@ impl ZkStashVault {
         token_client.transfer(&caller, &env.current_contract_address(), &amount);
 
         // Insert the commitment into the Merkle Tree
-        let new_root = MerkleTree::insert(&env, commitment);
+        let new_root = MerkleTree::insert(&env, commitment.clone());
 
         // Store the new root in the valid roots history
-        let root_key = (symbol_short!("ROOT"), new_root);
+        let root_key = (symbol_short!("ROOT"), new_root.clone());
         env.storage().persistent().set(&root_key, &true);
+
+        // Emit deposit event
+        env.events().publish(
+            (symbol_short!("deposit"), commitment),
+            (caller, token, amount, new_root),
+        );
     }
 
     /// Withdraws tokens to a clean recipient address using a ZK proof.
@@ -46,6 +74,7 @@ impl ZkStashVault {
         proof: Bytes,
     ) {
         assert!(amount > 0, "Amount must be positive");
+        assert!(!Self::is_paused(&env), "Contract is paused");
 
         // Ensure nullifier has not been spent yet
         let nullifier_key = (symbol_short!("NULL"), nullifier.clone());
@@ -61,7 +90,7 @@ impl ZkStashVault {
 
         // Construct public inputs for the ZK proof
         let mut public_inputs = Vec::new(&env);
-        public_inputs.push_back(root);
+        public_inputs.push_back(root.clone());
         public_inputs.push_back(nullifier.clone());
 
         // Hash parameters (recipient, token, amount) to bind them to this proof
@@ -86,9 +115,49 @@ impl ZkStashVault {
         // Mark nullifier as spent
         env.storage().persistent().set(&nullifier_key, &true);
 
+        // Calculate and deduct protocol fee
+        let fee_bps: u32 = env.storage().persistent().get(&DataKey::FeeBps).unwrap_or(0);
+        let fee_amount = (amount * fee_bps as i128) / 10000;
+        let withdraw_amount = amount - fee_amount;
+
+        if fee_amount > 0 {
+            let mut accrued: i128 = env.storage().persistent().get(&DataKey::AccruedFees).unwrap_or(0);
+            accrued += fee_amount;
+            env.storage().persistent().set(&DataKey::AccruedFees, &accrued);
+        }
+
         // Transfer the tokens to the recipient
         let token_client = soroban_sdk::token::Client::new(&env, &token);
-        token_client.transfer(&env.current_contract_address(), &recipient, &amount);
+        token_client.transfer(&env.current_contract_address(), &recipient, &withdraw_amount);
+
+        // Emit withdrawal event
+        env.events().publish(
+            (symbol_short!("withdraw"), nullifier),
+            (recipient, token, withdraw_amount, fee_amount),
+        );
+    }
+
+    /// Exposes a public getter to check if contract is paused.
+    pub fn is_paused(env: &Env) -> bool {
+        env.storage().persistent().get(&DataKey::Paused).unwrap_or(false)
+    }
+
+    /// Pause or unpause contract deposits and withdrawals (Admin only).
+    pub fn set_paused(env: Env, admin: Address, paused: bool) {
+        Self::require_admin(&env, &admin);
+        env.storage().persistent().set(&DataKey::Paused, &paused);
+    }
+
+    /// Claim accrued protocol fees (Admin only).
+    pub fn claim_fees(env: Env, admin: Address, token: Address, recipient: Address) {
+        Self::require_admin(&env, &admin);
+        let accrued: i128 = env.storage().persistent().get(&DataKey::AccruedFees).unwrap_or(0);
+        assert!(accrued > 0, "No fees accrued");
+
+        env.storage().persistent().set(&DataKey::AccruedFees, &0i128);
+
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        token_client.transfer(&env.current_contract_address(), &recipient, &accrued);
     }
 
     /// Gets the current Merkle Tree root.
@@ -99,6 +168,13 @@ impl ZkStashVault {
     /// Gets the total number of commitments deposited in the Merkle Tree.
     pub fn get_commitment_count(env: Env) -> u32 {
         MerkleTree::get_next_index(&env)
+    }
+
+    // Helpers
+    fn require_admin(env: &Env, caller: &Address) {
+        caller.require_auth();
+        let admin: Address = env.storage().persistent().get(&DataKey::Admin).expect("Not initialized");
+        assert!(*caller == admin, "Unauthorized");
     }
 }
 
