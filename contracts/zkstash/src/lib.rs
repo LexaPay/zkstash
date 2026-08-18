@@ -189,6 +189,14 @@ impl ZkStashVault {
         env.storage().persistent().set(&DataKey::FeeBps, &new_fee_bps);
     }
 
+    /// Checks if a given address is the current admin.
+    pub fn check_admin(env: Env, admin: Address) -> bool {
+        match env.storage().persistent().get::<_, Address>(&DataKey::Admin) {
+            Some(curr_admin) => curr_admin == admin,
+            None => false,
+        }
+    }
+
     // Helpers
     fn require_admin(env: &Env, caller: &Address) {
         caller.require_auth();

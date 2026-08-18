@@ -197,4 +197,24 @@ fn test_update_fee_bps() {
     assert_eq!(token_client.balance(&recipient), 990i128);
 }
 
+#[test]
+fn test_check_admin() {
+    let env = Env::default();
+    let contract_id = env.register(ZkStashVault, ());
+    let client = ZkStashVaultClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let fake_admin = Address::generate(&env);
+
+    // Initial state (not initialized) should return false
+    assert_eq!(client.check_admin(&admin), false);
+
+    client.initialize(&admin, &0);
+
+    // After initialization, check_admin should return true for actual admin
+    assert_eq!(client.check_admin(&admin), true);
+    assert_eq!(client.check_admin(&fake_admin), false);
+}
+
+
 
