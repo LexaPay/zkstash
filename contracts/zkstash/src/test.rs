@@ -21,8 +21,10 @@ fn test_deposit_and_withdrawal_flow() {
     let token_client = soroban_sdk::token::Client::new(&env, &token_id);
     let token_admin_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
 
-    // Initialize the contract with a 50 bps withdrawal fee (0.5%)
+    // Initialize the contract with a 50 bps deposit fee (0.5%)
     client.initialize(&admin, &50);
+    assert_eq!(client.get_fee_bps(), 50);
+    assert_eq!(client.get_accrued_fees(), 0);
 
     // 3. Setup accounts and mint tokens
     let depositor = Address::generate(&env);
@@ -35,40 +37,42 @@ fn test_deposit_and_withdrawal_flow() {
     // Verify initial commitment count
     assert_eq!(client.get_commitment_count(), 0);
 
-    // 4. Perform deposit
+    // 4. Perform deposit (50 bps of 1000 = 5 tokens accrued as protocol fee)
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
     client.deposit(&depositor, &token_id, &commitment, &amount);
 
     // Verify commitment count incremented
     assert_eq!(client.get_commitment_count(), 1);
 
-    // Check balances after deposit
+    // Check balances and accrued fees after deposit
     assert_eq!(token_client.balance(&depositor), 9000i128);
     assert_eq!(token_client.balance(&contract_id), 1000i128);
+    assert_eq!(client.get_accrued_fees(), 5i128);
 
     // Get root after deposit
     let root = client.get_root();
     assert_ne!(root, BytesN::from_array(&env, &[0u8; 32]));
 
-    // 5. Perform withdrawal with mock ZK proof
+    // 5. Perform withdrawal of vault portion (995 tokens) with mock ZK proof
     let nullifier = BytesN::from_array(&env, &[2u8; 32]);
     let proof = Bytes::from_slice(&env, b"ZK_PASS_MOCK_PROOF");
+    let withdraw_amount = 995i128;
 
-    client.withdraw(&token_id, &recipient, &amount, &nullifier, &root, &proof);
+    client.withdraw(&token_id, &recipient, &withdraw_amount, &nullifier, &root, &proof);
 
-    // Verify balances after withdrawal (50 bps of 1000 = 5 tokens deducted as fee)
     // Recipient receives 995 tokens, 5 tokens remain in the contract as accrued fees.
     assert_eq!(token_client.balance(&contract_id), 5i128);
     assert_eq!(token_client.balance(&recipient), 995i128);
 
-    // 6. Admin claims the fees
+    // 6. Admin claims the accrued protocol fees
     let fee_receiver = Address::generate(&env);
     client.claim_fees(&admin, &token_id, &fee_receiver);
     assert_eq!(token_client.balance(&fee_receiver), 5i128);
     assert_eq!(token_client.balance(&contract_id), 0i128);
+    assert_eq!(client.get_accrued_fees(), 0i128);
 
     // 7. Attempt double-spending with the same nullifier — should fail
-    let res = client.try_withdraw(&token_id, &recipient, &amount, &nullifier, &root, &proof);
+    let res = client.try_withdraw(&token_id, &recipient, &withdraw_amount, &nullifier, &root, &proof);
     assert!(res.is_err(), "Expected double-spending to fail");
 }
 
@@ -170,31 +174,44 @@ fn test_update_fee_bps() {
     let client = ZkStashVaultClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
+    let impostor = Address::generate(&env);
     let depositor = Address::generate(&env);
-    let recipient = Address::generate(&env);
     let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
     let token_id = token_contract.address();
     let token_client = soroban_sdk::token::Client::new(&env, &token_id);
     let token_admin_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
 
     client.initialize(&admin, &50); // Initial 50 bps (0.5%)
-    token_admin_client.mint(&depositor, &2000i128);
+    assert_eq!(client.get_fee_bps(), 50);
+    token_admin_client.mint(&depositor, &5000i128);
 
     // Update fee to 100 bps (1%)
     client.update_fee_bps(&admin, &100);
+    assert_eq!(client.get_fee_bps(), 100);
 
-    // Deposit 1000 tokens
+    // Impostor cannot update fee
+    let res = client.try_update_fee_bps(&impostor, &200);
+    assert!(res.is_err(), "Non-admin should not be able to update fee");
+
+    // Fee cannot exceed 1000 bps (10%)
+    let res_high = client.try_update_fee_bps(&admin, &1001);
+    assert!(res_high.is_err(), "Fee > 10% should be rejected");
+
+    // Deposit 1000 tokens with 100 bps fee -> 10 tokens accrued fee
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
     client.deposit(&depositor, &token_id, &commitment, &1000i128);
+    assert_eq!(client.get_accrued_fees(), 10i128);
 
-    // Withdraw 1000 tokens with 100 bps fee (10 tokens)
-    let root = client.get_root();
-    let nullifier = BytesN::from_array(&env, &[2u8; 32]);
-    let proof = Bytes::from_slice(&env, b"ZK_PASS_MOCK_PROOF");
-    client.withdraw(&token_id, &recipient, &1000i128, &nullifier, &root, &proof);
+    // Deposit another 2000 tokens with 100 bps fee -> +20 tokens (total 30 accrued)
+    let commitment2 = BytesN::from_array(&env, &[2u8; 32]);
+    client.deposit(&depositor, &token_id, &commitment2, &2000i128);
+    assert_eq!(client.get_accrued_fees(), 30i128);
 
-    // Recipient should receive 990 tokens, 10 tokens are contract fees
-    assert_eq!(token_client.balance(&recipient), 990i128);
+    // Admin claims the 30 accrued fees
+    let fee_recipient = Address::generate(&env);
+    client.claim_fees(&admin, &token_id, &fee_recipient);
+    assert_eq!(token_client.balance(&fee_recipient), 30i128);
+    assert_eq!(client.get_accrued_fees(), 0i128);
 }
 
 #[test]
