@@ -34,6 +34,7 @@ impl ZkStashVault {
     }
 
     /// Deposits tokens into the vault and registers a ZK commitment hash.
+    /// Deduces the protocol fee and accrues it in contract treasury.
     pub fn deposit(
         env: Env,
         caller: Address,
@@ -44,6 +45,17 @@ impl ZkStashVault {
         assert!(amount > 0, "Amount must be positive");
         assert!(!Self::is_paused(&env), "Contract is paused");
         caller.require_auth();
+
+        // Calculate and deduct protocol fee
+        let fee_bps: u32 = env.storage().persistent().get(&DataKey::FeeBps).unwrap_or(0);
+        let fee_amount = (amount * fee_bps as i128) / 10000;
+        let vault_amount = amount - fee_amount;
+
+        if fee_amount > 0 {
+            let mut accrued: i128 = env.storage().persistent().get(&DataKey::AccruedFees).unwrap_or(0);
+            accrued += fee_amount;
+            env.storage().persistent().set(&DataKey::AccruedFees, &accrued);
+        }
 
         // Transfer tokens from the caller to the vault
         let token_client = soroban_sdk::token::Client::new(&env, &token);
@@ -59,7 +71,7 @@ impl ZkStashVault {
         // Emit deposit event
         env.events().publish(
             (symbol_short!("deposit"), commitment),
-            (caller, token, amount, new_root),
+            (caller, token, amount, fee_amount, vault_amount, new_root),
         );
     }
 
@@ -115,25 +127,14 @@ impl ZkStashVault {
         // Mark nullifier as spent
         env.storage().persistent().set(&nullifier_key, &true);
 
-        // Calculate and deduct protocol fee
-        let fee_bps: u32 = env.storage().persistent().get(&DataKey::FeeBps).unwrap_or(0);
-        let fee_amount = (amount * fee_bps as i128) / 10000;
-        let withdraw_amount = amount - fee_amount;
-
-        if fee_amount > 0 {
-            let mut accrued: i128 = env.storage().persistent().get(&DataKey::AccruedFees).unwrap_or(0);
-            accrued += fee_amount;
-            env.storage().persistent().set(&DataKey::AccruedFees, &accrued);
-        }
-
         // Transfer the tokens to the recipient
         let token_client = soroban_sdk::token::Client::new(&env, &token);
-        token_client.transfer(&env.current_contract_address(), &recipient, &withdraw_amount);
+        token_client.transfer(&env.current_contract_address(), &recipient, &amount);
 
         // Emit withdrawal event
         env.events().publish(
             (symbol_short!("withdraw"), nullifier),
-            (recipient, token, withdraw_amount, fee_amount),
+            (recipient, token, amount),
         );
     }
 
@@ -158,6 +159,16 @@ impl ZkStashVault {
 
         let token_client = soroban_sdk::token::Client::new(&env, &token);
         token_client.transfer(&env.current_contract_address(), &recipient, &accrued);
+    }
+
+    /// Gets the current protocol fee rate in basis points.
+    pub fn get_fee_bps(env: Env) -> u32 {
+        env.storage().persistent().get(&DataKey::FeeBps).unwrap_or(0)
+    }
+
+    /// Gets the current total accrued protocol fees.
+    pub fn get_accrued_fees(env: Env) -> i128 {
+        env.storage().persistent().get(&DataKey::AccruedFees).unwrap_or(0)
     }
 
     /// Gets the current Merkle Tree root.
